@@ -1,81 +1,105 @@
-# type: perl throughput.pl <trace file> <+ or r> <origin node> <destination node> <tick> <protocol>  >  output file
+#!/usr/bin/perl
 
-# if <protocol> is 'all', it is not taken into account
+# type: perl throughput.pl <packet size trace file> <inter-packet time trace file [ms]> <tick [ms]> 
 
-# if <origin node>=-1, then it does not matter the origin node
-# if <destination node>=-1 then it does not matter the destination node
+# example:
 
-# $ perl throughput.pl out.tr 5 0.1 tcp > throughput_5.txt
+# $ perl throughput.pl ip_len.txt ipt.txt 10
 
-# the result is in bps
+# this takes a single-column file of lengths and a single column file of ipt, and calculates the throughput
 
-# the script computes the bps RECEIVED by the node in the trace
-# # the link to study has to be included in the trace
+# the script computes the bps in the trace files
 
-$infile = $ARGV[0];
-$type_packet = $ARGV[1];	# can be a sending (+) or a reception (r)
-$fromnode = $ARGV[2];
-$tonode = $ARGV[3];
-$tick = $ARGV[4];
-$protocol = $ARGV[5];		#'tcp' or 'cbr'
+# it reads a line from each file, so the shortest file will define the number of packets read
+
+# it generates an output with two columns:
+
+# - tick starting time [ms]
+# - throughput during the tick [bps]
+
+# this subroutine returns a line from the file. If the file is ended, it returns 0
+sub read_file_line { 
+  my $fh = shift; 
+ 
+  if ($fh and my $line = <$fh>) { 
+    chomp $line; 
+    return [ split(/\t/, $line) ]; 
+  } 
+  return 0; 
+} 
+
+$size_file = $ARGV[0];
+$ipt_file = $ARGV[1];
+$tick = $ARGV[2];
 
 #we compute how many bits were transmitted during time interval specified
 #by tick parameter in seconds
 $sum = 0;
 $tick_begin = 0;
 
-open (DATA,"<$infile")
-	|| die "Can't open $infile $!";
-  
-while (<DATA>) {
-	@x = split(' ');
+my $acum_bytes = 0;
+my $acum_packets = 0;
+my $absolut_time = 0.0;
 
-	#column 1 is time 
-	if ( $x[1] <= $tick_begin + $tick )
+open(my $size_file_, $size_file); 
+open(my $ipt_file_, $ipt_file);
+
+my $size_line_ = read_file_line($size_file_); 
+my $ipt_line_ = read_file_line($ipt_file_);
+
+while (($end_size_file == 0) & ($end_ipt_file == 0)) {
+
+	# if the tick has not finished:
+	if ( $absolut_time <= $tick_begin + $tick )
 	{
-		#checking if the event corresponds to a reception or sending
-		if ($x[0] eq $type_packet) 
-		{ 
-			#checking if the origin corresponds to arg 1
-			if (($x[2] eq $fromnode) || ( $fromnode eq -1))
-			{ 
-				#checking if the destination corresponds to arg 2
-				if (($x[3] eq $tonode) || ( $tonode eq -1))
-				{ 
-					#checking if the packet type is the name of the corresponding protocol
-					if (($x[4] eq $protocol) || ( $protocol eq 'all'))
-					{
-						# acumulating the data
-						$sum = $sum + ( 8 * $x[5] ); #factor of 8 for passing to bits
-						#print STDOUT "$x[5]\n";
-					}
-				}
-			}
-		}
+		# acumulating the data
+		$acum_bytes = $acum_bytes + $size_line_->[0]; 
+		$acum_packets = $acum_packets + 1;
+		$absolut_time = $absolut_time + $ipt_line_->[0];
+
+		#print STDOUT "1\t$acum_bytes\t$absolut_time\t$tick_begin\t$throughput\n";
+
+	# a tick has finished:
 	} else {
-		# a tick has finished
-		$throughput = $sum / $tick;
-		print STDOUT "$tick_begin\t$throughput\n";
+
+		$throughput = $acum_bytes * 8 * 1000 / $tick ;	# factor of 1000 because time is in ms
+		#print STDOUT "$absolut_time\t$tick_begin\t$acum_bytes\t$throughput\n";
+		print STDOUT "$tick_begin\t$throughput\t$acum_packets\n";
 
 		# get the data of the current packet for the next tick
-		$sum = ( 8 * $x[5] ); #factor of 8 for passing to bits
-		#print STDOUT "$x[5]\n";
+		$acum_bytes = $size_line_->[0]; 
+		$acum_packets = 1;
+		$absolut_time = $absolut_time + $ipt_line_->[0];
 
 		$tick_begin = $tick_begin + $tick;
 
 		# for each tick without packets, put the tick_begin time and 0
-		while ( $x[1] > $tick + $tick_begin ) {
-			print STDOUT "$tick_begin\t0\n";
+		while ( $absolut_time > $tick_begin + $tick ) {
+			#the number of bytes and the throughput are null in these ticks
+			#print STDOUT "$absolut_time\t$tick_begin\t0\t0\n";
+			print STDOUT "$tick_begin\t0\t0\n";
 			$tick_begin = $tick_begin + $tick;		
 		}
+	}
+
+	# read another line
+	$size_line_ = read_file_line($size_file_); 
+	$ipt_line_ = read_file_line($ipt_file_);
+
+	if (not $size_line_ ) {
+		$end_size_file = 1;
+	}
+
+	if (not $ipt_line_ ) {
+		$end_ipt_file = 1;
 	}
 }
 
 # last tick
-$throughput = $sum / $tick;
+$throughput = $acum_bytes * 8 * 1000 / $tick ;
 $tick_begin = $tick_begin + $tick;
-print STDOUT "$tick_begin\t$throughput\n";
-$sum = 0;
+print STDOUT "$tick_begin\t$throughput\t$acum_packets\n";
 
-close DATA;
+close($size_file_);
+close($ipt_file_);
 exit(0);

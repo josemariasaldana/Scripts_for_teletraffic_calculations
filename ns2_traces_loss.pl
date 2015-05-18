@@ -1,8 +1,14 @@
+#!/usr/bin/perl
+
+# this script is to be used with ns2 trace files
+
 # type: perl loss.pl <trace file sent packets> <trace file loss packets> <tick> >  output file
 
 # trace files are this kind:
 # r 0.100003 0 4 tcp 40 ------- 111000 0.0 1.0 0 2		first file
 # d 0.974887 4 5 ack 40 ------- 112000 0.1 1.1 6 122	second file
+
+# see http://nsnam.isi.edu/nsnam/index.php/NS-2_Trace_Formats
 
 # the second column (0.100003 in the example) is the time. it is $x[1]
 
